@@ -1,0 +1,196 @@
+{
+  "signatures": [
+    {
+      "name": "OpenAI API Key (Legacy)",
+      "pattern": "\\bsk-[a-zA-Z0-9]{48}\\b"
+    },
+    {
+      "name": "OpenAI API Key (Project)",
+      "pattern": "\\bsk-proj-[a-zA-Z0-9\\-_]{48,}\\b"
+    },
+    {
+      "name": "Anthropic API Key",
+      "pattern": "\\bsk-ant-api03-[a-zA-Z0-9\\-_]{60,100}\\b"
+    },
+    {
+      "name": "Tavily API Key",
+      "pattern": "\\btvly-[a-zA-Z0-9_-]{20,}\\b"
+    },
+    {
+      "name": "Google API/GCP Key",
+      "pattern": "\\bAIza[0-9A-Za-z\\-_]{35}\\b"
+    },
+    {
+      "name": "OpenRouter API Key",
+      "pattern": "\\bsk-or-v1-[a-zA-Z0-9]{64}\\b"
+    },
+    {
+      "name": "xAI (Grok) API Key",
+      "pattern": "\\bxai-[a-zA-Z0-9\\-_]{60,100}\\b"
+    },
+    {
+      "name": "Groq API Key",
+      "pattern": "\\bgsk_[a-zA-Z0-9]{32,64}\\b"
+    },
+    {
+      "name": "HuggingFace Token",
+      "pattern": "\\bhf_[a-zA-Z]{34}\\b"
+    },
+    {
+      "name": "AWS Access Key ID",
+      "pattern": "\\bAKIA[0-9A-Z]{16}\\b"
+    },
+    {
+      "name": "AWS Session Token",
+      "pattern": "\\bASIA[0-9A-Z]{16}\\b"
+    },
+    {
+      "name": "DigitalOcean PAT",
+      "pattern": "\\bdop_v1_[a-f0-9]{64}\\b"
+    },
+    {
+      "name": "GitHub Classic PAT",
+      "pattern": "\\b(?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36}\\b"
+    },
+    {
+      "name": "GitHub Fine-Grained PAT",
+      "pattern": "\\bgithub_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}\\b"
+    },
+    {
+      "name": "GitLab PAT",
+      "pattern": "\\bglpat-[a-zA-Z0-9\\-]{20}\\b"
+    },
+    {
+      "name": "NPM Access Token",
+      "pattern": "\\b(?:npm_[a-zA-Z0-9]{36})\\b"
+    },
+    {
+      "name": "PyPI Upload Token",
+      "pattern": "\\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9\\-_]{50,150}\\b"
+    },
+    {
+      "name": "Postman API Key",
+      "pattern": "\\bPMAK-[a-f0-9]{24}-[a-f0-9]{34}\\b"
+    },
+    {
+      "name": "Discord Bot Token",
+      "pattern": "\\b[MNO][a-zA-Z0-9_-]{23,27}\\.[a-zA-Z0-9_-]{6}\\.[a-zA-Z0-9_-]{27,38}\\b"
+    },
+    {
+      "name": "Discord Webhook",
+      "pattern": "https://discord\\.com/api/webhooks/[0-9]{17,19}/[a-zA-Z0-9_-]{60,68}"
+    },
+    {
+      "name": "Slack Bot Token",
+      "pattern": "\\bxoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}\\b"
+    },
+    {
+      "name": "Slack User Token",
+      "pattern": "\\bxox[pausr]-[0-9]{10,13}-[a-zA-Z0-9]{24,32}\\b"
+    },
+    {
+      "name": "Slack Webhook",
+      "pattern": "https://hooks\\.slack\\.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,10}/[a-zA-Z0-9_]{24}"
+    },
+    {
+      "name": "Telegram Bot Token",
+      "pattern": "\\b[0-9]{8,10}:[a-zA-Z0-9_-]{35}\\b"
+    },
+    {
+      "name": "Twilio API Key",
+      "pattern": "\\bSK[0-9a-fA-F]{32}\\b"
+    },
+    {
+      "name": "Stripe Secret Key",
+      "pattern": "\\b(?:sk|rk)_(?:test|live)_[0-9a-zA-Z]{24,99}\\b"
+    },
+    {
+      "name": "Supabase PAT",
+      "pattern": "\\bsbp_[a-zA-Z0-9]{40}\\b"
+    },
+    {
+      "name": "Supabase Anon/Service Role JWT",
+      "pattern": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\\.[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+"
+    },
+    {
+      "name": "Firebase Server Key",
+      "pattern": "\\bAAAA[A-Za-z0-9_-]{7}:[A-Za-z0-9_-]{140}\\b"
+    },
+    {
+      "name": "Firebase Database URL",
+      "pattern": "https:\\/\\/[a-z0-9-]+\\.firebaseio\\.com"
+    },
+    {
+      "name": "Airtable PAT",
+      "pattern": "\\bpat[a-zA-Z0-9]{14}\\.[a-zA-Z0-9]{64}\\b"
+    },
+    {
+      "name": "Appwrite API Key",
+      "pattern": "(?i)appwrite[\\w\\s=-]{0,20}(?:key|token|secret)[\\w\\s=:\\\"\\'-]{0,10}\\b([a-zA-Z0-9\\-_]{32,})\\b"
+    },
+    {
+      "name": "AWS Secret Access Key (Env Var)",
+      "pattern": "(?i)aws_secret_access_key\\s*[:=]\\s*['\\\"]?([A-Za-z0-9/+=]{40})['\\\"]?"
+    },
+    {
+      "name": "Stripe Webhook Secret",
+      "pattern": "\\bwhsec_[a-zA-Z0-9]{32,}\\b"
+    },
+    {
+      "name": "Slack App Token",
+      "pattern": "\\bxapp-[A-Za-z0-9-]{20,}\\b"
+    },
+    {
+      "name": "Google OAuth Client Secret",
+      "pattern": "\\bGOCSPX-[A-Za-z0-9_-]{20,}\\b"
+    },
+    {
+      "name": "Google OAuth Access Token",
+      "pattern": "\\bya29\\.[A-Za-z0-9_-]{20,}\\b"
+    },
+    {
+      "name": "Twilio Auth Token (Context)",
+      "pattern": "(?i)twilio[\\w\\s=-]{0,20}(?:auth|token)[\\w\\s=:\\\"\\'-]{0,10}\\b([0-9a-f]{32})\\b"
+    },
+    {
+      "name": "Azure Storage Connection String",
+      "pattern": "DefaultEndpointsProtocol=https?;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{40,};EndpointSuffix=core\\.windows\\.net"
+    },
+    {
+      "name": "MongoDB Connection URI",
+      "pattern": "mongodb(?:\\+srv)?:\\/\\/[^\\s:@/]+:[^\\s@/]+@[^\\s/]+"
+    },
+    {
+      "name": "PostgreSQL Connection URI",
+      "pattern": "(?:postgres|postgresql):\\/\\/[^\\s:@/]+:[^\\s@/]+@[^\\s/]+"
+    },
+    {
+      "name": "MySQL/MariaDB Connection URI",
+      "pattern": "(?:mysql|mariadb):\\/\\/[^\\s:@/]+:[^\\s@/]+@[^\\s/]+"
+    },
+    {
+      "name": "Redis Connection URI (Password)",
+      "pattern": "redis(?:\\+ssl)?:\\/\\/:?[^\\s@/]+@[^\\s/]+"
+    },
+    {
+      "name": "RabbitMQ/AMQP URI",
+      "pattern": "amqps?:\\/\\/[^\\s:@/]+:[^\\s@/]+@[^\\s/]+"
+    },
+    {
+      "name": "Confluent Cloud Bootstrap Server",
+      "pattern": "(?i)bootstrap\\.servers\\s*[:=]\\s*[\"']?([a-z0-9-]+\\.confluent\\.cloud:\\d+)"
+    },
+    {
+      "name": "Confluent Cloud API Key",
+      "pattern": "(?i)sasl\\.username\\s*[:=]\\s*[\"']?([A-Z0-9]{15,25})"
+    },
+    {
+      "name": "Confluent Cloud API Secret",
+      "pattern": "(?i)sasl\\.password\\s*[:=]\\s*[\"']?([a-zA-Z0-9+/=]{40,100})"
+    },
+    {
+      "name": "Kafka SASL_SSL Configuration",
+      "pattern": "(?i)security\\.protocol\\s*[:=]\\s*[\"']?SASL_SSL"
+    }
+  ]
+}

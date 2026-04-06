@@ -3,16 +3,12 @@ package worker
 import (
 	"runtime"
 	"sync"
+
+	"github.com/Dharshan2208/git-scanner/internal/scanner"
+	"github.com/Dharshan2208/git-scanner/internal/types"
 )
 
-// detected issue structure
-type Finding struct {
-	File     string
-	Line     int
-	Type     string
-	Severity string
-	Match    string
-}
+type Finding = types.Finding
 
 // StartWorkerPool starts workers and returns results channel
 func StartWorkerPool(jobs chan string) chan Finding {
@@ -42,13 +38,11 @@ func worker(jobs chan string, results chan Finding, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for file := range jobs {
-		// fake processing
-		results <- Finding{
-			File:     file,
-			Line:     1,
-			Type:     "demo",
-			Severity: "LOW",
-			Match:    "example",
+
+		findings := scanner.ScanFile(file)
+
+		for _, f := range findings {
+			results <- f
 		}
 	}
 }

@@ -58,10 +58,11 @@ var scanCmd = &cobra.Command{
 		// Consume findings from workers
 		foundCount := 0
 		for finding := range results {
-			fmt.Printf("[FOUND] %s | %s | %s\n",
+			fmt.Printf("[FOUND] %s | %s | Line No : %d\n",
 				finding.File,
 				finding.Type,
-				finding.Severity)
+				finding.Line,
+			)
 			foundCount++
 		}
 
