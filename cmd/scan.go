@@ -6,6 +6,7 @@ import (
 
 	"github.com/Dharshan2208/git-scanner/internal/repo"
 	"github.com/Dharshan2208/git-scanner/internal/walker"
+	"github.com/Dharshan2208/git-scanner/internal/worker"
 
 	"github.com/spf13/cobra"
 )
@@ -32,7 +33,7 @@ var scanCmd = &cobra.Command{
 		}
 
 		// Resolve path(clone if remote)
-		path, cleanup,err := repo.Resolve(input)
+		path, cleanup, err := repo.Resolve(input)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -44,23 +45,28 @@ var scanCmd = &cobra.Command{
 		// Creating the buffered job channel to prevent deadlock
 		jobs := make(chan string, 200)
 
-		// running the walker in goroutine
+		// start worker pool that'll process files and return results
+		results := worker.StartWorkerPool(jobs)
+
+		// running the walker in goroutine and feeding the files into job channel
 		go func() {
 			if err := walker.Walk(path, jobs); err != nil {
 				log.Fatal(err)
 			}
 		}()
 
-		count := 0
-		// consume the jobs
-		for file := range jobs {
-			fmt.Println("File : ", file)
-			count++
-			// TODO : Later scan this files for secret
+		// Consume findings from workers
+		foundCount := 0
+		for finding := range results {
+			fmt.Printf("[FOUND] %s | %s | %s\n",
+				finding.File,
+				finding.Type,
+				finding.Severity)
+			foundCount++
 		}
 
 		fmt.Printf("Scanning completed.....\n")
-		fmt.Printf("Total files found : %d\n", count)
+		fmt.Printf("Total files found : %d\n", foundCount)
 	},
 }
 
