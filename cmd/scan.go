@@ -5,6 +5,7 @@ import (
 	"log"
 	"path/filepath"
 
+	"github.com/Dharshan2208/git-scanner/internal/aggregator"
 	"github.com/Dharshan2208/git-scanner/internal/repo"
 	"github.com/Dharshan2208/git-scanner/internal/walker"
 	"github.com/Dharshan2208/git-scanner/internal/worker"
@@ -56,18 +57,19 @@ var scanCmd = &cobra.Command{
 			}
 		}()
 
+		aggregatedFindings := aggregator.Aggregate(results)
 		// Consume findings from workers
 		foundCount := 0
-		for finding := range results {
+		for _, finding := range aggregatedFindings {
 
 			// converting the full path ..it's too long
 			// to relative path
-			realPath, err := filepath.Rel(path, finding.File)
+			relPath, err := filepath.Rel(path, finding.File)
 			if err != nil {
-				realPath = finding.File // Falback to long
+				relPath = finding.File // Falback to long
 			}
 			fmt.Printf("[FOUND] %s | %s | Line No : %d\n",
-				realPath,
+				relPath,
 				finding.Type,
 				finding.Line,
 			)
