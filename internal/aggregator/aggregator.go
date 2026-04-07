@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"sort"
+	"strconv"
 
 	"github.com/Dharshan2208/git-scanner/internal/types"
 )
@@ -16,7 +17,7 @@ func Aggregate(results chan types.Finding) []types.Finding {
 	for res := range results {
 
 		// unique key
-		key := res.File + "|" + res.Match
+		key := res.File + "|" + strconv.Itoa(res.Line) + "|" + res.Type + "|" + res.Match
 
 		if !seen[key] {
 			seen[key] = true

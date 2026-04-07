@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 
 	"github.com/Dharshan2208/git-scanner/internal/aggregator"
+	"github.com/Dharshan2208/git-scanner/internal/git"
 	"github.com/Dharshan2208/git-scanner/internal/output"
 	"github.com/Dharshan2208/git-scanner/internal/repo"
 	"github.com/Dharshan2208/git-scanner/internal/walker"
 	"github.com/Dharshan2208/git-scanner/internal/worker"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/spf13/cobra"
 )
@@ -19,6 +21,7 @@ var (
 	repoURL    string
 	outputFile string
 	format     string
+	history    bool
 )
 
 var scanCmd = &cobra.Command{
@@ -47,8 +50,13 @@ var scanCmd = &cobra.Command{
 
 		fmt.Println("Resolved Path : ", path)
 
+		if history {
+			runHistoryScan(path)
+			return
+		}
+
 		// Creating the buffered job channel to prevent deadlock
-		jobs := make(chan string, 200)
+		jobs := make(chan worker.Job, 200)
 
 		// start worker pool that'll process files and return results
 		results := worker.StartWorkerPool(jobs)
@@ -62,45 +70,85 @@ var scanCmd = &cobra.Command{
 
 		// Aggregate findinggs (deduplicate + sort)
 		aggregatedFindings := aggregator.Aggregate(results)
-		// Consume findings from workers
-		foundCount := 0
-		for _, finding := range aggregatedFindings {
-
-			// converting the full path ..it's too long
-			// to relative path
-			relPath, _ := filepath.Rel(path, finding.File)
-			fmt.Printf("[FOUND] %s | %s | Line No : %d\n",
-				relPath,
-				finding.Type,
-				finding.Line,
-			)
-			foundCount++
-		}
-
-		fmt.Printf("Scanning completed.....\n")
-		fmt.Printf("Total findings : %d\n", foundCount)
-
-		if outputFile != "" {
-			switch format {
-			case "json", "JSON":
-				if err := output.WriteJSON(aggregatedFindings, path, outputFile); err != nil {
-					log.Printf("Warning: Failed to write JSON report: %v", err)
-				} else {
-					fmt.Printf("JSON report saved to: %s\n", outputFile)
-				}
-
-			case "markdown", "md", "":
-				if err := output.WriteMarkdown(aggregatedFindings, path, outputFile); err != nil {
-					log.Printf("Warning: Failed to write markdown report: %v", err)
-				} else {
-					fmt.Printf("Markdown report saved to: %s\n", outputFile)
-				}
-
-			default:
-				log.Printf("Unknown format: %s. Supported: markdown, json", format)
-			}
-		}
+		printFindings(aggregatedFindings, path)
+		saveReport(aggregatedFindings, path)
 	},
+}
+
+func runHistoryScan(repoPath string) {
+	fmt.Println("Starting full git history scan... This may take a while.")
+
+	var allFindings []worker.Finding
+
+	err := git.ScanHistory(repoPath, func(commitInfo git.CommitInfo, tree *object.Tree) {
+		// Create fresh channels for this commit
+		jobs := make(chan worker.Job, 200)
+		results := worker.StartWorkerPool(jobs)
+
+		// Walk the *tree* instead of filesystem
+		go func() {
+			defer close(jobs)
+			if err := walker.WalkTree(tree, repoPath, jobs); err != nil { // <-- new function needed
+				log.Printf("Warning: walker failed for commit %s: %v", commitInfo.Hash[:8], err)
+			}
+		}()
+
+		commitFindings := aggregator.Aggregate(results)
+
+		// Attach commit info
+		for i := range commitFindings {
+			commitFindings[i].Commit = commitInfo.Hash
+			commitFindings[i].Message = commitInfo.Message
+		}
+
+		allFindings = append(allFindings, commitFindings...)
+	})
+	if err != nil {
+		log.Fatal("History scan failed:", err)
+	}
+
+	fmt.Println("\nHistory scan completed.")
+	printFindings(allFindings, repoPath)
+	saveReport(allFindings, repoPath)
+}
+
+// Helper functions to reduce congetion in the above code
+func printFindings(findings []worker.Finding, basePath string) {
+	foundCount := 0
+	for _, f := range findings {
+		relPath, _ := filepath.Rel(basePath, f.File)
+		fmt.Printf("[FOUND] %s | %s | Line : %d\n", relPath, f.Type, f.Line)
+		if f.Commit != "" {
+			fmt.Printf("       Commit: %s | %s\n", f.Commit[:8], f.Message)
+		}
+		foundCount++
+	}
+
+	fmt.Printf("Scanning completed.....\n")
+	fmt.Printf("Total findings : %d\n", foundCount)
+}
+
+func saveReport(findings []worker.Finding, basePath string) {
+	if outputFile == "" {
+		return
+	}
+
+	switch format {
+	case "json", "JSON":
+		if err := output.WriteJSON(findings, basePath, outputFile); err != nil {
+			log.Printf("Failed to write JSON: %v", err)
+		} else {
+			fmt.Printf("JSON report saved to: %s\n", outputFile)
+		}
+	case "markdown", "md", "":
+		if err := output.WriteMarkdown(findings, basePath, outputFile); err != nil {
+			log.Printf("Failed to write markdown: %v", err)
+		} else {
+			fmt.Printf("Markdown report saved to: %s\n", outputFile)
+		}
+	default:
+		log.Printf("Unknown format: %s. Supported: markdown, json", format)
+	}
 }
 
 func init() {
@@ -110,4 +158,5 @@ func init() {
 	scanCmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL")
 	scanCmd.Flags().StringVar(&outputFile, "output", "", "Path to save markdown report(eg : report.md)")
 	scanCmd.Flags().StringVar(&format, "format", "markdown", "Output format: markdown or json")
+	scanCmd.Flags().BoolVar(&history, "history", false, "Scan git commit history")
 }

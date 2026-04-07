@@ -12,10 +12,12 @@ import (
 // WriteJSON writes findings into a JSON report
 func WriteJSON(findings []types.Finding, basePath, outputPath string) error {
 	type ReportFinding struct {
-		File  string `json:"file"`
-		Type  string `json:"type"`
-		Line  int    `json:"line"`
-		Match string `json:"match"`
+		File    string `json:"file"`
+		Type    string `json:"type"`
+		Line    int    `json:"line"`
+		Match   string `json:"match"`
+		Commit  string `json:"commit"`
+		Message string `json:"message"`
 	}
 
 	report := struct {
@@ -36,10 +38,12 @@ func WriteJSON(findings []types.Finding, basePath, outputPath string) error {
 		}
 
 		report.Findings[i] = ReportFinding{
-			File:  relPath,
-			Type:  f.Type,
-			Line:  f.Line,
-			Match: f.Match,
+			File:    relPath,
+			Type:    f.Type,
+			Line:    f.Line,
+			Match:   f.Match,
+			Commit:  f.Commit,
+			Message: f.Message,
 		}
 	}
 

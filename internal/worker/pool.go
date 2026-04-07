@@ -10,8 +10,15 @@ import (
 
 type Finding = types.Finding
 
+type Job struct {
+	FilePath string
+	Content  string
+	Commit   string
+	Message  string
+}
+
 // StartWorkerPool starts workers and returns results channel
-func StartWorkerPool(jobs chan string) chan Finding {
+func StartWorkerPool(jobs chan Job) chan Finding {
 	results := make(chan Finding)
 	var wg sync.WaitGroup
 
@@ -34,13 +41,22 @@ func StartWorkerPool(jobs chan string) chan Finding {
 }
 
 // worker processes files
-func worker(jobs chan string, results chan Finding, wg *sync.WaitGroup) {
+func worker(jobs chan Job, results chan Finding, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	for file := range jobs {
-		findings := scanner.ScanFile(file)
+	for job := range jobs {
+		var findings []types.Finding
+		if job.Content != "" {
+			findings = scanner.ScanContent(job.Content, job.FilePath, job.Commit, job.Message)
+		} else {
+			findings = scanner.ScanFile(job.FilePath, job.Commit, job.Message)
+		}
 
 		for _, f := range findings {
+			if job.Commit != "" {
+				f.Commit = job.Commit
+				f.Message = job.Message
+			}
 			results <- f
 		}
 	}

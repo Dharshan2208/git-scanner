@@ -50,7 +50,9 @@ func WriteMarkdown(findings []types.Finding, basePath, outputPath string) error 
 			}
 			fmt.Fprintf(file, "- **File:** `%s`  \n", relPath)
 			fmt.Fprintf(file, "  **Line:** %d  \n", f.Line)
-			fmt.Fprintf(file, "  **Match:** `%s`\n\n", f.Match)
+			fmt.Fprintf(file, "  **Match:** `%s`\n", f.Match)
+			fmt.Fprintf(file, "  **Commit:** %s  \n", f.Commit)
+			fmt.Fprintf(file, "  **Message:** `%s`\n\n", f.Message)
 		}
 
 		fmt.Fprintf(file, "---\n")

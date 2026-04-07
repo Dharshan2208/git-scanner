@@ -186,7 +186,7 @@
     },
     {
       "name": "Confluent Cloud API Secret",
-      "pattern": "(?i)sasl\\.password\\s*[:=]\\s*[\"']?([a-zA-Z0-9+/=]{40,100})"
+      "pattern": "(?i)sasl\\.password\\s*[:=]\\s*[\"']?([a-zA-Z0-9+/=]{40,100})[\"']?"
     },
     {
       "name": "Kafka SASL_SSL Configuration",
