@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/Dharshan2208/git-scanner/internal/aggregator"
+	"github.com/Dharshan2208/git-scanner/internal/output"
 	"github.com/Dharshan2208/git-scanner/internal/repo"
 	"github.com/Dharshan2208/git-scanner/internal/walker"
 	"github.com/Dharshan2208/git-scanner/internal/worker"
@@ -14,8 +15,10 @@ import (
 )
 
 var (
-	localPath string
-	repoURL   string
+	localPath  string
+	repoURL    string
+	outputFile string
+	format     string
 )
 
 var scanCmd = &cobra.Command{
@@ -57,6 +60,7 @@ var scanCmd = &cobra.Command{
 			}
 		}()
 
+		// Aggregate findinggs (deduplicate + sort)
 		aggregatedFindings := aggregator.Aggregate(results)
 		// Consume findings from workers
 		foundCount := 0
@@ -64,10 +68,7 @@ var scanCmd = &cobra.Command{
 
 			// converting the full path ..it's too long
 			// to relative path
-			relPath, err := filepath.Rel(path, finding.File)
-			if err != nil {
-				relPath = finding.File // Falback to long
-			}
+			relPath, _ := filepath.Rel(path, finding.File)
 			fmt.Printf("[FOUND] %s | %s | Line No : %d\n",
 				relPath,
 				finding.Type,
@@ -77,7 +78,28 @@ var scanCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Scanning completed.....\n")
-		fmt.Printf("Total files found : %d\n", foundCount)
+		fmt.Printf("Total findings : %d\n", foundCount)
+
+		if outputFile != "" {
+			switch format {
+			case "json", "JSON":
+				if err := output.WriteJSON(aggregatedFindings, path, outputFile); err != nil {
+					log.Printf("Warning: Failed to write JSON report: %v", err)
+				} else {
+					fmt.Printf("JSON report saved to: %s\n", outputFile)
+				}
+
+			case "markdown", "md", "":
+				if err := output.WriteMarkdown(aggregatedFindings, path, outputFile); err != nil {
+					log.Printf("Warning: Failed to write markdown report: %v", err)
+				} else {
+					fmt.Printf("Markdown report saved to: %s\n", outputFile)
+				}
+
+			default:
+				log.Printf("Unknown format: %s. Supported: markdown, json", format)
+			}
+		}
 	},
 }
 
@@ -86,4 +108,6 @@ func init() {
 
 	scanCmd.Flags().StringVar(&localPath, "local", "", "Local directory to scan")
 	scanCmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL")
+	scanCmd.Flags().StringVar(&outputFile, "output", "", "Path to save markdown report(eg : report.md)")
+	scanCmd.Flags().StringVar(&format, "format", "markdown", "Output format: markdown or json")
 }
