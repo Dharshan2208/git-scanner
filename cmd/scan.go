@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 
 	"github.com/Dharshan2208/git-scanner/internal/repo"
 	"github.com/Dharshan2208/git-scanner/internal/walker"
@@ -58,8 +59,15 @@ var scanCmd = &cobra.Command{
 		// Consume findings from workers
 		foundCount := 0
 		for finding := range results {
+
+			// converting the full path ..it's too long
+			// to relative path
+			realPath, err := filepath.Rel(path, finding.File)
+			if err != nil {
+				realPath = finding.File // Falback to long
+			}
 			fmt.Printf("[FOUND] %s | %s | Line No : %d\n",
-				finding.File,
+				realPath,
 				finding.Type,
 				finding.Line,
 			)
