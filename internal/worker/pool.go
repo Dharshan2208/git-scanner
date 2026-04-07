@@ -38,7 +38,6 @@ func worker(jobs chan string, results chan Finding, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for file := range jobs {
-
 		findings := scanner.ScanFile(file)
 
 		for _, f := range findings {

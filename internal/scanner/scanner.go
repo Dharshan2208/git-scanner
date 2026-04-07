@@ -24,6 +24,7 @@ func ScanFile(filePath string) []types.Finding {
 	for scanner.Scan() {
 		line := scanner.Text()
 
+		// 1.Signature based detection
 		for _, sig := range detector.Signatures {
 			if sig.Regex.MatchString(line) {
 				findings = append(findings, types.Finding{
@@ -33,6 +34,18 @@ func ScanFile(filePath string) []types.Finding {
 					Match: line,
 				})
 			}
+		}
+
+		// 2.Entropy based detection
+		entropyMatches := detector.FindHighEntropy(line)
+
+		for _, match := range entropyMatches {
+			findings = append(findings, types.Finding{
+				File:  filePath,
+				Line:  lineNum,
+				Type:  "High Entropy String",
+				Match: match,
+			})
 		}
 
 		lineNum++

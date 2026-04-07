@@ -28,6 +28,16 @@ var skipDirs = map[string]bool{
 	"build":        true,
 }
 
+// files to skip even though they have proper valid extension
+var skipFiles = map[string]bool{
+	"package-lock.json": true,
+	"yarn.lock":         true,
+	"pnpm-lock.yaml":    true,
+	"go.sum":            true,
+	"composer.lock":     true,
+	".DS_Store":         true,
+}
+
 // Walk traverses the directory and sends valid file paths to jobs channel
 func Walk(root string, jobs chan<- string) error {
 	// clsing the channels only when we are completely done
@@ -43,6 +53,10 @@ func Walk(root string, jobs chan<- string) error {
 			if skipDirs[d.Name()] {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+
+		if skipFiles[d.Name()] {
 			return nil
 		}
 
