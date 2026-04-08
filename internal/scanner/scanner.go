@@ -33,7 +33,20 @@ func scanLines(s *bufio.Scanner, filePath string, commit string, message string)
 			}
 		}
 
-		// 2.Entropy based detection
+		// 2. Keyword based detection
+		keywordMatches := detector.FindKeywordBased(line)
+		for _, match := range keywordMatches {
+			findings = append(findings, types.Finding{
+				File:    filePath,
+				Line:    lineNum,
+				Type:    "Keyword Secret",
+				Match:   match,
+				Commit:  commit,
+				Message: message,
+			})
+		}
+
+		// 3.Entropy based detection
 		entropyMatches := detector.FindHighEntropy(line)
 
 		for _, match := range entropyMatches {
