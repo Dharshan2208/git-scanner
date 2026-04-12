@@ -1,11 +1,14 @@
 package detector
 
 import (
+	"embed"
 	"encoding/json"
 	"log"
-	"os"
 	"regexp"
 )
+
+// embedding so no need of sig.json
+var signatureFS embed.FS
 
 type rawSignature struct {
 	Name    string `json:"name"`
@@ -19,23 +22,29 @@ type Signature struct {
 
 var Signatures []Signature
 
-// Load signatures from JSON
-func LoadSignatures(path string) {
-	file, err := os.ReadFile(path)
+func LoadSignatures() {
+	// Reading the embedded file
+	data, err := signatureFS.ReadFile("sign.json")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to read embedded signatures:", err)
 	}
 
-	var data struct {
+	var config struct {
 		Signatures []rawSignature `json:"signatures"`
 	}
 
-	if err := json.Unmarshal(file, &data); err != nil {
-		log.Fatal(err)
+	if err := json.Unmarshal(data, &config); err != nil {
+		log.Fatal("Failed to parse signatures JSON:", err)
 	}
 
-	for _, sig := range data.Signatures {
-		re := regexp.MustCompile(sig.Pattern)
+	Signatures = Signatures[:0] // Clear existing signatures if reloading
+
+	for _, sig := range config.Signatures {
+		re, err := regexp.Compile(sig.Pattern)
+		if err != nil {
+			log.Printf("Warning: Invalid regex in signature '%s': %v", sig.Name, err)
+			continue // Skip bad signature instead of crashing
+		}
 
 		Signatures = append(Signatures, Signature{
 			Name:  sig.Name,
@@ -43,5 +52,5 @@ func LoadSignatures(path string) {
 		})
 	}
 
-	log.Println("Loaded signatures:", len(Signatures))
+	log.Printf("Loaded %d signatures successfully", len(Signatures))
 }

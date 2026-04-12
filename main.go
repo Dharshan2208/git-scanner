@@ -6,6 +6,6 @@ import (
 )
 
 func main() {
-	detector.LoadSignatures("internal/scanner/sign.json")
+	detector.LoadSignatures()
 	cmd.Execute()
 }

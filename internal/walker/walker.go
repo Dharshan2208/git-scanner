@@ -74,11 +74,7 @@ func Walk(root string, jobs chan<- worker.Job) error {
 				Message:  "",
 			}
 
-			select {
-			case jobs <- job:
-			default:
-				// Channel is full or closed (rare), but safe
-			}
+			jobs <- job
 		}
 
 		return nil
