@@ -52,7 +52,27 @@ func WriteMarkdown(findings []types.Finding, basePath, outputPath string) error 
 			fmt.Fprintf(file, "  **Line:** %d  \n", f.Line)
 			fmt.Fprintf(file, "  **Match:** `%s`\n", f.Match)
 			fmt.Fprintf(file, "  **Commit:** %s  \n", f.Commit)
-			fmt.Fprintf(file, "  **Message:** `%s`\n\n", f.Message)
+			fmt.Fprintf(file, "  **Message:** `%s`  \n", f.Message)
+
+			// Lifecycle enrichment (only populated for --history scans).
+			if f.IntroducedCommit != "" || f.ExposureWindow != "" {
+				if f.IntroducedCommit != "" {
+					fmt.Fprintf(file, "  **Introduced:** %s  \n", f.IntroducedCommit)
+				}
+				if f.RemovedCommit != "" {
+					fmt.Fprintf(file, "  **Removed:** %s  \n", f.RemovedCommit)
+				} else if f.StillPresentInHEAD {
+					fmt.Fprintf(file, "  **Removed:** (still present in HEAD)  \n")
+				}
+				if f.ExposureWindow != "" {
+					fmt.Fprintf(file, "  **Exposure:** %s  \n", f.ExposureWindow)
+				} else if f.ExposureCommits > 0 {
+					fmt.Fprintf(file, "  **Exposure:** Exposed for %d commits  \n", f.ExposureCommits)
+				}
+			}
+
+			// Blank line between findings for readability.
+			fmt.Fprintln(file)
 		}
 
 		fmt.Fprintf(file, "---\n")

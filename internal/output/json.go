@@ -16,8 +16,15 @@ func WriteJSON(findings []types.Finding, basePath, outputPath string) error {
 		Type    string `json:"type"`
 		Line    int    `json:"line"`
 		Match   string `json:"match"`
-		Commit  string `json:"commit"`
-		Message string `json:"message"`
+		Commit  string `json:"commit,omitempty"`
+		Message string `json:"message,omitempty"`
+
+		// Lifecycle tracking (populated during --history scans)
+		IntroducedCommit   string `json:"introduced_commit,omitempty"`
+		RemovedCommit      string `json:"removed_commit,omitempty"`
+		ExposureCommits    int    `json:"exposure_commits,omitempty"`
+		ExposureWindow     string `json:"exposure_window,omitempty"`
+		StillPresentInHEAD bool   `json:"still_present_in_head,omitempty"`
 	}
 
 	report := struct {
@@ -44,6 +51,12 @@ func WriteJSON(findings []types.Finding, basePath, outputPath string) error {
 			Match:   f.Match,
 			Commit:  f.Commit,
 			Message: f.Message,
+
+			IntroducedCommit:   f.IntroducedCommit,
+			RemovedCommit:      f.RemovedCommit,
+			ExposureCommits:    f.ExposureCommits,
+			ExposureWindow:     f.ExposureWindow,
+			StillPresentInHEAD: f.StillPresentInHEAD,
 		}
 	}
 

@@ -8,4 +8,10 @@ type Finding struct {
 	Match   string
 	Commit  string
 	Message string
+
+	IntroducedCommit   string 
+	RemovedCommit      string 
+	ExposureCommits    int    
+	ExposureWindow     string 
+	StillPresentInHEAD bool   
 }

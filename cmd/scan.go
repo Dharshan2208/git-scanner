@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strings"
 
 	"github.com/Dharshan2208/git-scanner/internal/aggregator"
 	"github.com/Dharshan2208/git-scanner/internal/git"
@@ -80,6 +81,43 @@ func runHistoryScan(repoPath string) {
 
 	var allFindings []worker.Finding
 
+	type lifecycle struct {
+		IntroducedCommit string
+		RemovedCommit    string
+		ExposureCommits  int
+		Active           bool
+	}
+
+	secretKey := func(f worker.Finding) string {
+		return f.Type + "\x00" + f.Match
+	}
+
+	formatExposure := func(exposureCommits int, stillPresent bool, removedCommit string) string {
+		if exposureCommits <= 0 {
+			return ""
+		}
+
+		commitWord := "commits"
+		if exposureCommits == 1 {
+			commitWord = "commit"
+		}
+
+		if stillPresent {
+			return fmt.Sprintf("Exposed for %d %s (still present in HEAD)", exposureCommits, commitWord)
+		}
+		if removedCommit != "" {
+			short := removedCommit
+			if len(short) > 8 {
+				short = short[:8]
+			}
+			return fmt.Sprintf("Exposed for %d %s (removed in commit %s)", exposureCommits, commitWord, short)
+		}
+		return fmt.Sprintf("Exposed for %d %s", exposureCommits, commitWord)
+	}
+
+	lifecycles := make(map[string]*lifecycle)
+	activeKeys := make(map[string]struct{}) // keys active in the previous scanned commit
+
 	err := git.ScanHistory(repoPath, func(commitInfo git.CommitInfo, tree *object.Tree) {
 		// Create fresh channels for this commit
 		jobs := make(chan worker.Job, 200)
@@ -88,7 +126,7 @@ func runHistoryScan(repoPath string) {
 		// Walk the *tree* instead of filesystem
 		go func() {
 			defer close(jobs)
-			if err := walker.WalkTree(tree, repoPath, jobs); err != nil { // <-- new function needed
+			if err := walker.WalkTree(tree, repoPath, jobs); err != nil { 
 				log.Printf("Warning: walker failed for commit %s: %v", commitInfo.Hash[:8], err)
 			}
 		}()
@@ -101,10 +139,60 @@ func runHistoryScan(repoPath string) {
 			commitFindings[i].Message = commitInfo.Message
 		}
 
+		// Build per-commit secret set (unique by Type+Match) for lifecycle updates.
+		presentKeys := make(map[string]struct{})
+		for _, f := range commitFindings {
+			presentKeys[secretKey(f)] = struct{}{}
+		}
+
+		// 1) Mark removals: any secret active in the previous commit but missing now is removed in this commit.
+		for key := range activeKeys {
+			if _, ok := presentKeys[key]; ok {
+				continue
+			}
+			if lc, ok := lifecycles[key]; ok && lc.Active {
+				lc.Active = false
+				lc.RemovedCommit = commitInfo.Hash
+			}
+			delete(activeKeys, key)
+		}
+
+		// 2) Mark presence/exposure and introductions.
+		for key := range presentKeys {
+			lc, ok := lifecycles[key]
+			if !ok {
+				lc = &lifecycle{IntroducedCommit: commitInfo.Hash}
+				lifecycles[key] = lc
+			}
+			lc.Active = true
+			lc.ExposureCommits++
+			activeKeys[key] = struct{}{}
+		}
+
 		allFindings = append(allFindings, commitFindings...)
 	})
 	if err != nil {
 		log.Fatal("History scan failed:", err)
+	}
+
+	for i := range allFindings {
+		key := secretKey(allFindings[i])
+		lc := lifecycles[key]
+		if lc == nil {
+			continue
+		}
+
+		allFindings[i].IntroducedCommit = lc.IntroducedCommit
+		allFindings[i].ExposureCommits = lc.ExposureCommits
+		allFindings[i].StillPresentInHEAD = lc.Active
+
+		// Only set RemovedCommit if the secret is not present in HEAD.
+		if !lc.Active {
+			allFindings[i].RemovedCommit = lc.RemovedCommit
+		}
+		allFindings[i].ExposureWindow = formatExposure(lc.ExposureCommits, lc.Active, lc.RemovedCommit)
+
+		allFindings[i].ExposureWindow = strings.ReplaceAll(allFindings[i].ExposureWindow, "\n", " ")
 	}
 
 	fmt.Println("\nHistory scan completed.")
