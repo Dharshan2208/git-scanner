@@ -7,7 +7,7 @@ import (
 	"regexp"
 )
 
-// embedding so no need of sig.json
+//go:embed sign.json
 var signatureFS embed.FS
 
 type rawSignature struct {
