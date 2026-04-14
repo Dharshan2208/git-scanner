@@ -11,7 +11,7 @@ import (
 )
 
 // extensions we care about
-var validExt = map[string]bool{
+var ValidExt = map[string]bool{
 	".go":   true,
 	".js":   true,
 	".ts":   true,
@@ -25,7 +25,7 @@ var validExt = map[string]bool{
 }
 
 // directories to skip
-var skipDirs = map[string]bool{
+var SkipDirs = map[string]bool{
 	".git":         true,
 	"node_modules": true,
 	"vendor":       true,
@@ -34,7 +34,7 @@ var skipDirs = map[string]bool{
 }
 
 // files to skip even though they have proper valid extension
-var skipFiles = map[string]bool{
+var SkipFiles = map[string]bool{
 	"package-lock.json": true,
 	"yarn.lock":         true,
 	"pnpm-lock.yaml":    true,
@@ -45,83 +45,156 @@ var skipFiles = map[string]bool{
 
 // Walk traverses the directory and sends valid file paths to jobs channel
 func Walk(root string, jobs chan<- worker.Job) error {
-	// clsing the channels only when we are completely done
 	defer close(jobs)
+	return walkDir(root, jobs)
+}
 
+// WalkTree traverses a git tree and sends valid file paths to jobs channel
+func WalkTree(tree *object.Tree, basePath string, jobs chan<- worker.Job) error {
+	return walkGitTree(tree, basePath, jobs)
+}
+
+// CollectJobsFromTree collects all jobs from a git tree and returns them
+// This is useful for parallel processing where we need all jobs upfront
+func CollectJobsFromTree(tree *object.Tree, basePath string) ([]worker.Job, error) {
+	var jobs []worker.Job
+	err := walkGitTreeWithCollector(tree, basePath, func(job worker.Job) {
+		jobs = append(jobs, job)
+	})
+	return jobs, err
+}
+
+// CollectJobsFromDir collects all jobs from a directory and returns them
+func CollectJobsFromDir(root string) ([]worker.Job, error) {
+	var jobs []worker.Job
+	err := walkDirWithCollector(root, func(job worker.Job) {
+		jobs = append(jobs, job)
+	})
+	return jobs, err
+}
+
+// --- Internal implementation ---
+
+func walkDir(root string, jobs chan<- worker.Job) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Skip directories
 		if d.IsDir() {
-			if skipDirs[d.Name()] {
+			if SkipDirs[d.Name()] {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if skipFiles[d.Name()] {
+		if SkipFiles[d.Name()] {
 			return nil
 		}
 
-		// only process the files with valid extension
 		ext := strings.ToLower(filepath.Ext(path))
-		if validExt[ext] {
-			job := worker.Job{
+		if ValidExt[ext] {
+			jobs <- worker.Job{
 				FilePath: path,
 				Commit:   "",
 				Message:  "",
 			}
-
-			jobs <- job
 		}
 
 		return nil
 	})
 }
 
-func WalkTree(tree *object.Tree, basePath string, jobs chan<- worker.Job) error {
-	return tree.Files().ForEach(func(f *object.File) error {
-		// Skip directories anywhere in the path
-		for _, part := range strings.Split(f.Name, "/") {
-			if skipDirs[part] {
-				return nil
-			}
-		}
-
-		baseName := filepath.Base(f.Name)
-		if skipFiles[baseName] {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(f.Name))
-		if !validExt[ext] {
-			return nil
-		}
-
-		// Skip very large files (optional but recommended)
-		if f.Size > 500*1024 {
-			return nil
-		}
-
-		// Get file content
-		content, err := f.Contents()
+func walkDirWithCollector(root string, collector func(worker.Job)) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			log.Printf("Warning: failed to read %s: %v", f.Name, err)
+			return err
+		}
+
+		if d.IsDir() {
+			if SkipDirs[d.Name()] {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
-		// Full path for reporting (you can change this if you want just relative name)
-		fullPath := filepath.Join(basePath, f.Name)
+		if SkipFiles[d.Name()] {
+			return nil
+		}
 
-		jobs <- worker.Job{
-			FilePath: fullPath,
-			Content:  content,
-			Commit:   "",
-			Message:  "",
+		ext := strings.ToLower(filepath.Ext(path))
+		if ValidExt[ext] {
+			collector(worker.Job{
+				FilePath: path,
+				Commit:   "",
+				Message:  "",
+			})
 		}
 
 		return nil
 	})
+}
+
+func walkGitTree(tree *object.Tree, basePath string, jobs chan<- worker.Job) error {
+	return tree.Files().ForEach(func(f *object.File) error {
+		job, ok := createJobFromGitFile(f, basePath)
+		if !ok {
+			return nil
+		}
+		jobs <- job
+		return nil
+	})
+}
+
+func walkGitTreeWithCollector(tree *object.Tree, basePath string, collector func(worker.Job)) error {
+	return tree.Files().ForEach(func(f *object.File) error {
+		job, ok := createJobFromGitFile(f, basePath)
+		if !ok {
+			return nil
+		}
+		collector(job)
+		return nil
+	})
+}
+
+// createJobFromGitFile creates a job from a git file if it passes filters
+// Returns (job, true) if valid, (empty, false) if should be skipped
+func createJobFromGitFile(f *object.File, basePath string) (worker.Job, bool) {
+	// Skip directories anywhere in the path
+	for _, part := range strings.Split(f.Name, "/") {
+		if SkipDirs[part] {
+			return worker.Job{}, false
+		}
+	}
+
+	baseName := filepath.Base(f.Name)
+	if SkipFiles[baseName] {
+		return worker.Job{}, false
+	}
+
+	ext := strings.ToLower(filepath.Ext(f.Name))
+	if !ValidExt[ext] {
+		return worker.Job{}, false
+	}
+
+	// Skip very large files
+	if f.Size > 500*1024 {
+		return worker.Job{}, false
+	}
+
+	// Get file content
+	content, err := f.Contents()
+	if err != nil {
+		log.Printf("Warning: failed to read %s: %v", f.Name, err)
+		return worker.Job{}, false
+	}
+
+	fullPath := filepath.Join(basePath, f.Name)
+
+	return worker.Job{
+		FilePath: fullPath,
+		Content:  content,
+		Commit:   "",
+		Message:  "",
+	}, true
 }
