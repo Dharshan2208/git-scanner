@@ -7,11 +7,13 @@ import (
 	"sort"
 
 	"github.com/Dharshan2208/git-scanner/internal/types"
+	"github.com/Dharshan2208/git-scanner/internal/utils"
 )
 
 type Finding = types.Finding
 
 // WriteMarkdown writes findings into a markdown report
+// All secrets are automatically sanitized before display (default behavior)
 func WriteMarkdown(findings []types.Finding, basePath, outputPath string) error {
 	file, err := os.Create(outputPath)
 	if err != nil {
@@ -19,10 +21,11 @@ func WriteMarkdown(findings []types.Finding, basePath, outputPath string) error 
 	}
 	defer file.Close()
 
-	fmt.Fprintf(file, "# Git Scanner Report\n")
+	fmt.Fprintf(file, "# Git Scanner Report\n\n")
+	fmt.Fprintf(file, ">**Note:** Secret values are automatically redacted for security.\n\n")
 
 	if len(findings) == 0 {
-		fmt.Fprintln(file, "No secrets found...Shit")
+		fmt.Fprintln(file, "No secrets found.")
 		return nil
 	}
 
@@ -48,9 +51,11 @@ func WriteMarkdown(findings []types.Finding, basePath, outputPath string) error 
 			if err != nil {
 				relPath = f.File // fallback to full path
 			}
+			// Sanitize secret for safe display
+			sanitizedMatch := utils.SanitizeSecret(f.Match)
 			fmt.Fprintf(file, "- **File:** `%s`  \n", relPath)
 			fmt.Fprintf(file, "  **Line:** %d  \n", f.Line)
-			fmt.Fprintf(file, "  **Match:** `%s`\n", f.Match)
+			fmt.Fprintf(file, "  **Match:** `%s`\n", sanitizedMatch)
 			fmt.Fprintf(file, "  **Commit:** %s  \n", f.Commit)
 			fmt.Fprintf(file, "  **Message:** `%s`  \n", f.Message)
 

@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/Dharshan2208/git-scanner/internal/types"
+	"github.com/Dharshan2208/git-scanner/internal/utils"
 )
 
 // WriteJSON writes findings into a JSON report
+// All secrets are automatically sanitized before display (default behavior)
 func WriteJSON(findings []types.Finding, basePath, outputPath string) error {
 	type ReportFinding struct {
 		File    string `json:"file"`
@@ -31,10 +33,12 @@ func WriteJSON(findings []types.Finding, basePath, outputPath string) error {
 		Repository    string          `json:"repository,omitempty"`
 		ScanTime      string          `json:"scan_time"`
 		TotalFindings int             `json:"total_findings"`
+		Sanitized     bool            `json:"sanitized"`
 		Findings      []ReportFinding `json:"findings"`
 	}{
 		ScanTime:      getCurrentTime(),
 		TotalFindings: len(findings),
+		Sanitized:     true, // Indicates that secret values have been redacted
 		Findings:      make([]ReportFinding, len(findings)),
 	}
 
@@ -44,11 +48,14 @@ func WriteJSON(findings []types.Finding, basePath, outputPath string) error {
 			relPath = f.File
 		}
 
+		// Sanitize secret for safe display
+		sanitizedMatch := utils.SanitizeSecret(f.Match)
+
 		report.Findings[i] = ReportFinding{
 			File:    relPath,
 			Type:    f.Type,
 			Line:    f.Line,
-			Match:   f.Match,
+			Match:   sanitizedMatch,
 			Commit:  f.Commit,
 			Message: f.Message,
 
