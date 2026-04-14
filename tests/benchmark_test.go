@@ -17,9 +17,7 @@ import (
 	"github.com/Dharshan2208/git-scanner/internal/worker"
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Real GitHub repos used for benchmarking
-// ─────────────────────────────────────────────────────────────────────────────
 //
 //
 // Medium repos — real OSS projects; benchmarks measure scanner throughput on
@@ -56,9 +54,7 @@ var mediumRepos = []repoSpec{
 	},
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Repo cache helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 // cacheRoot returns the base directory where all cloned repos live.
 // Uses a fixed path under os.TempDir() so it survives across test runs.
@@ -109,9 +105,7 @@ func cloneOrUseCache(tb testing.TB, spec repoSpec) string {
 	return dest
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Synthetic test data (preserved from original)
-// ─────────────────────────────────────────────────────────────────────────────
 
 // NOTE: All "secrets" below are intentionally malformed/fake test fixtures.
 // They exist solely to exercise the scanner's pattern-matching logic and
@@ -208,9 +202,7 @@ var supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 	},
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 func init() {
 	detector.LoadSignatures()
@@ -322,9 +314,7 @@ func countFiles(root string) int {
 	return count
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Memory / timing helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 type memStats struct {
 	HeapAllocMB    float64
@@ -388,13 +378,11 @@ func printStats(t *testing.T, label string, fileCount, findingCount int, elapsed
 	t.Logf("  ───────────────────────────────────────────────────────────────")
 	t.Logf("  CONCURRENCY")
 	t.Logf("  Goroutines     : %d before → %d after", before.GoroutineCount, after.GoroutineCount)
-	t.Logf("  Worker count   : %d (NumCPU×4 = %d×4)", runtime.NumCPU()*4, runtime.NumCPU())
+	t.Logf("  Worker count   : %d (NumCPU workers)", runtime.NumCPU())
 	t.Logf("═══════════════════════════════════════════════════════════════")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Synthetic tests (original suite — preserved)
-// ─────────────────────────────────────────────────────────────────────────────
 
 func TestFullPipelineSmall(t *testing.T) {
 	dir := generateTestRepo(t, 1)
@@ -496,9 +484,7 @@ func TestGoroutineLeakCheck(t *testing.T) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Real-repo tests
-// ─────────────────────────────────────────────────────────────────────────────
 
 // TestRealRepo_MediumOSS clones real OSS projects and measures false-positive
 // rate and scanner throughput on production-quality code.
@@ -529,9 +515,7 @@ func TestRealRepo_MediumOSS(t *testing.T) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Benchmarks
-// ─────────────────────────────────────────────────────────────────────────────
 //
 // Run with: go test -bench=. -benchmem -benchtime=3x ./tests/
 //

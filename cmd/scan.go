@@ -5,6 +5,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/Dharshan2208/git-scanner/internal/aggregator"
 	"github.com/Dharshan2208/git-scanner/internal/git"
@@ -123,15 +124,22 @@ func runHistoryScan(repoPath string) {
 		jobs := make(chan worker.Job, 200)
 		results := worker.StartWorkerPool(jobs)
 
+		var wg sync.WaitGroup
+		wg.Add(1)
+
 		// Walk the *tree* instead of filesystem
 		go func() {
-			defer close(jobs)
-			if err := walker.WalkTree(tree, repoPath, jobs); err != nil { 
+			defer wg.Done()
+			if err := walker.WalkTree(tree, repoPath, jobs); err != nil {
 				log.Printf("Warning: walker failed for commit %s: %v", commitInfo.Hash[:8], err)
 			}
+			close(jobs)
 		}()
 
 		commitFindings := aggregator.Aggregate(results)
+
+		// Wait for walker to complete before proceeding to next commit
+		wg.Wait()
 
 		// Attach commit info
 		for i := range commitFindings {

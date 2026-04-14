@@ -25,7 +25,11 @@ func calculateEntropy(s string) float64 {
 
 	for _, count := range freq {
 		p := count / length
-		entropy -= p * math.Log2(p)
+		// Skip zero probabilities to avoid log(0) which returns -Inf
+		// and would corrupt the entropy calculation
+		if p > 0 {
+			entropy -= p * math.Log2(p)
+		}
 	}
 
 	return entropy

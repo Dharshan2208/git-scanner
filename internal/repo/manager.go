@@ -12,8 +12,13 @@ import (
 // Resolve will take the input (local/repo url)
 // and returns a local directory path
 func Resolve(input string) (string, func() error, error) {
-	// Case 1: Remote repo
-	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
+	// Case 1: Remote repo (HTTP/HTTPS or SSH)
+	isRemote := strings.HasPrefix(input, "http://") ||
+		strings.HasPrefix(input, "https://") ||
+		strings.HasPrefix(input, "git@") ||
+		strings.HasPrefix(input, "ssh://")
+
+	if isRemote {
 
 		// Get the current working directory
 		projectDir, err := os.Getwd()
