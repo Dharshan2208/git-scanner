@@ -9,6 +9,8 @@ import (
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/Dharshan2208/git-scanner/internal/types"
 )
 
 // CommitInfo contains metadata about a commit
@@ -18,14 +20,16 @@ type CommitInfo struct {
 	OrderIndex int // Position in history (0 = oldest, for lifecycle tracking)
 }
 
-// ScanResult holds the findings for a single commit
-type ScanResult struct {
-	Commit CommitInfo
-	Tree   *object.Tree
+// shortHash safely truncates a commit hash to a readable length.
+func shortHash(hash string) string {
+	if len(hash) > 8 {
+		return hash[:8]
+	}
+	return hash
 }
 
-// ScanHistory passes the commit's tree so walker can scan without checkout
-// This is the original sequential implementation - kept for compatibility
+// ScanHistory passes the commit's tree so walker can scan without checkout.
+// This is the original sequential implementation — kept for reference.
 func ScanHistory(repoPath string, callback func(CommitInfo, *object.Tree)) error {
 	r, err := git.PlainOpen(repoPath)
 	if err != nil {
@@ -37,9 +41,6 @@ func ScanHistory(repoPath string, callback func(CommitInfo, *object.Tree)) error
 		return fmt.Errorf("failed to get commit log: %w", err)
 	}
 
-	// go-git returns commits from newest -> oldest. Lifecycle tracking and exposure
-	// windows are easier to compute when scanning oldest -> newest, so we buffer
-	// commits and then iterate in reverse.
 	var commits []*object.Commit
 	if err := iter.ForEach(func(c *object.Commit) error {
 		commits = append(commits, c)
@@ -52,11 +53,11 @@ func ScanHistory(repoPath string, callback func(CommitInfo, *object.Tree)) error
 		c := commits[i]
 		tree, err := c.Tree()
 		if err != nil {
-			log.Printf("Warning: failed to get tree for commit %s: %v", c.Hash.String()[:8], err)
+			log.Printf("Warning: failed to get tree for commit %s: %v", shortHash(c.Hash.String()), err)
 			continue
 		}
 
-		fmt.Printf("Scanning commit %s | %s\n", c.Hash.String()[:8], truncate(c.Message, 70))
+		fmt.Printf("Scanning commit %s | %s\n", shortHash(c.Hash.String()), truncate(c.Message, 70))
 
 		callback(CommitInfo{
 			Hash:       c.Hash.String(),
@@ -68,20 +69,14 @@ func ScanHistory(repoPath string, callback func(CommitInfo, *object.Tree)) error
 	return nil
 }
 
+// CommitScanner is implemented by types that know how to scan a single commit's tree.
 type CommitScanner interface {
-	ScanCommit(info CommitInfo, tree *object.Tree) []Finding
+	ScanCommit(info CommitInfo, tree *object.Tree) []types.Finding
 }
 
-type Finding struct {
-	File    string
-	Line    int
-	Type    string
-	Match   string
-	Commit  string
-	Message string
-}
-
-func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]Finding, error) {
+// ScanHistoryParallel scans every commit in the repository in parallel using the
+// provided CommitScanner and returns all findings across all commits.
+func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]types.Finding, error) {
 	r, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open repository: %w", err)
@@ -102,10 +97,8 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]Finding, err
 	}
 
 	// Reverse to get oldest first for proper lifecycle tracking
-	// But we need to remember the original order for lifecycle
 	numCommits := len(commits)
 
-	// Create scan tasks (oldest to newest for lifecycle)
 	type scanTask struct {
 		commit *object.Commit
 		tree   *object.Tree
@@ -117,7 +110,7 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]Finding, err
 		c := commits[i]
 		tree, err := c.Tree()
 		if err != nil {
-			log.Printf("Warning: failed to get tree for commit %s: %v", c.Hash.String()[:8], err)
+			log.Printf("Warning: failed to get tree for commit %s: %v", shortHash(c.Hash.String()), err)
 			continue
 		}
 
@@ -127,17 +120,16 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]Finding, err
 			info: CommitInfo{
 				Hash:       c.Hash.String(),
 				Message:    c.Message,
-				OrderIndex: numCommits - 1 - i, // Oldest = 0, newest = N-1
+				OrderIndex: numCommits - 1 - i,
 			},
 		})
 	}
 
 	log.Printf("Found %d commits, scanning in parallel with %d workers...\n", len(tasks), runtime.NumCPU())
 
-	// Results channel and waitgroup for parallel processing
 	type result struct {
 		info     CommitInfo
-		findings []Finding
+		findings []types.Finding
 	}
 
 	resultsChan := make(chan result, len(tasks))
@@ -152,11 +144,11 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]Finding, err
 			defer wg.Done()
 			for task := range taskChan {
 				fmt.Printf("[Worker %d] Scanning commit %s | %s\n",
-					workerID+1, task.info.Hash[:8], truncate(task.info.Message, 50))
+					workerID+1, shortHash(task.info.Hash), truncate(task.info.Message, 50))
 
 				findings := scanner.ScanCommit(task.info, task.tree)
 
-				// Add commit info to each finding
+				// Stamp commit info on each finding
 				for i := range findings {
 					findings[i].Commit = task.info.Hash
 					findings[i].Message = task.info.Message
@@ -185,7 +177,7 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]Finding, err
 	}()
 
 	// Collect all results
-	var allFindings []Finding
+	var allFindings []types.Finding
 	for res := range resultsChan {
 		allFindings = append(allFindings, res.findings...)
 	}
@@ -195,8 +187,7 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]Finding, err
 	return allFindings, nil
 }
 
-// GetCommitOrder returns a map of commit hash to order index (oldest = 0)
-// This is useful for lifecycle tracking after parallel scanning
+// GetCommitOrder returns a map of commit hash to order index (oldest = 0).
 func GetCommitOrder(repoPath string) (map[string]int, error) {
 	r, err := git.PlainOpen(repoPath)
 	if err != nil {
@@ -219,7 +210,6 @@ func GetCommitOrder(repoPath string) (map[string]int, error) {
 	orderMap := make(map[string]int)
 	numCommits := len(commits)
 
-	// Reverse iterate (oldest to newest)
 	for i := len(commits) - 1; i >= 0; i-- {
 		orderMap[commits[i].Hash.String()] = numCommits - 1 - i
 	}
@@ -227,7 +217,7 @@ func GetCommitOrder(repoPath string) (map[string]int, error) {
 	return orderMap, nil
 }
 
-// GetCommitInfo returns detailed info for a specific commit hash
+// GetCommitInfo returns detailed info for a specific commit hash.
 func GetCommitInfo(repoPath, commitHash string) (*CommitInfo, error) {
 	r, err := git.PlainOpen(repoPath)
 	if err != nil {
@@ -237,10 +227,9 @@ func GetCommitInfo(repoPath, commitHash string) (*CommitInfo, error) {
 	hash := plumbing.NewHash(commitHash)
 	commit, err := r.CommitObject(hash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get commit %s: %w", commitHash[:8], err)
+		return nil, fmt.Errorf("failed to get commit %s: %w", shortHash(commitHash), err)
 	}
 
-	// Get order index
 	orderMap, err := GetCommitOrder(repoPath)
 	if err != nil {
 		return nil, err
