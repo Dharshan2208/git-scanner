@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"context"
 	"sort"
 	"strconv"
 
@@ -8,20 +9,28 @@ import (
 )
 
 // Aggregate collects, deduplicates, and sorts findings from a results channel.
-func Aggregate(results chan types.Finding) []types.Finding {
+func Aggregate(ctx context.Context, results chan types.Finding) []types.Finding {
 	var final []types.Finding
 	seen := make(map[string]bool)
 
-	for res := range results {
-		key := res.File + "|" + strconv.Itoa(res.Line) + "|" + res.Type + "|" + res.Match
-		if !seen[key] {
-			seen[key] = true
-			final = append(final, res)
+	for {
+		select {
+		case <-ctx.Done():
+			// Return partial results on cancellation.
+			SortFindings(final)
+			return final
+		case res, ok := <-results:
+			if !ok {
+				SortFindings(final)
+				return final
+			}
+			key := res.File + "|" + strconv.Itoa(res.Line) + "|" + res.Type + "|" + res.Match
+			if !seen[key] {
+				seen[key] = true
+				final = append(final, res)
+			}
 		}
 	}
-
-	SortFindings(final)
-	return final
 }
 
 // SortFindings sorts findings by file path, then line number.

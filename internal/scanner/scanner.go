@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"strings"
 
@@ -9,7 +10,7 @@ import (
 	"github.com/Dharshan2208/git-scanner/internal/types"
 )
 
-func scanLines(s *bufio.Scanner, filePath string, commit string, message string) []types.Finding {
+func scanLines(ctx context.Context, s *bufio.Scanner, filePath string, commit string, message string) []types.Finding {
 	var findings []types.Finding
 
 	// default token limit is small; bump to handle long lines (minified json, JWTs, etc.)
@@ -17,6 +18,11 @@ func scanLines(s *bufio.Scanner, filePath string, commit string, message string)
 
 	lineNum := 1
 	for s.Scan() {
+		// Check for cancellation between lines to avoid long-running scans of huge files.
+		if err := ctx.Err(); err != nil {
+			return findings
+		}
+
 		line := s.Text()
 
 		// 1.Signature based detection
@@ -67,7 +73,7 @@ func scanLines(s *bufio.Scanner, filePath string, commit string, message string)
 }
 
 // scans a file and returns findings
-func ScanFile(filePath string, commit string, message string) []types.Finding {
+func ScanFile(ctx context.Context, filePath string, commit string, message string) []types.Finding {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil
@@ -75,11 +81,11 @@ func ScanFile(filePath string, commit string, message string) []types.Finding {
 	defer file.Close()
 
 	s := bufio.NewScanner(file)
-	return scanLines(s, filePath, commit, message)
+	return scanLines(ctx, s, filePath, commit, message)
 }
 
 // ScanContent scans in-memory content (used for git history trees where files are not checked out).
-func ScanContent(content string, virtualPath string, commit string, message string) []types.Finding {
+func ScanContent(ctx context.Context, content string, virtualPath string, commit string, message string) []types.Finding {
 	s := bufio.NewScanner(strings.NewReader(content))
-	return scanLines(s, virtualPath, commit, message)
+	return scanLines(ctx, s, virtualPath, commit, message)
 }

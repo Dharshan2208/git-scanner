@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -337,18 +338,18 @@ func captureMemStats() memStats {
 	}
 }
 
-func runFullPipeline(repoPath string) ([]worker.Finding, time.Duration, memStats, memStats) {
+func runFullPipeline(ctx context.Context, repoPath string) ([]worker.Finding, time.Duration, memStats, memStats) {
 	before := captureMemStats()
 	start := time.Now()
 
 	jobs := make(chan worker.Job, 200)
-	results := worker.StartWorkerPool(jobs)
+	results := worker.StartWorkerPool(ctx, jobs)
 
 	go func() {
-		_ = walker.Walk(repoPath, jobs)
+		_ = walker.Walk(ctx, repoPath, jobs)
 	}()
 
-	findings := aggregator.Aggregate(results)
+	findings := aggregator.Aggregate(ctx, results)
 
 	elapsed := time.Since(start)
 	after := captureMemStats()
@@ -388,7 +389,7 @@ func TestFullPipelineSmall(t *testing.T) {
 	dir := generateTestRepo(t, 1)
 	defer os.RemoveAll(dir)
 
-	findings, elapsed, before, after := runFullPipeline(dir)
+	findings, elapsed, before, after := runFullPipeline(context.Background(), dir)
 	printStats(t, "FULL PIPELINE — SMALL REPO (10 secret files)", countFiles(dir), len(findings), elapsed, before, after)
 
 	if len(findings) == 0 {
@@ -404,7 +405,7 @@ func TestFullPipelineMedium(t *testing.T) {
 	dir := generateLargeRepo(t, 100, 0.05)
 	defer os.RemoveAll(dir)
 
-	findings, elapsed, before, after := runFullPipeline(dir)
+	findings, elapsed, before, after := runFullPipeline(context.Background(), dir)
 	printStats(t, "FULL PIPELINE — MEDIUM REPO (100 files, ~5% secret lines)", 100, len(findings), elapsed, before, after)
 }
 
@@ -412,7 +413,7 @@ func TestFullPipelineLarge(t *testing.T) {
 	dir := generateLargeRepo(t, 1000, 0.02)
 	defer os.RemoveAll(dir)
 
-	findings, elapsed, before, after := runFullPipeline(dir)
+	findings, elapsed, before, after := runFullPipeline(context.Background(), dir)
 	printStats(t, "FULL PIPELINE — LARGE REPO (1000 files, ~2% secret lines)", 1000, len(findings), elapsed, before, after)
 
 	if elapsed > 30*time.Second {
@@ -444,7 +445,7 @@ func main() {
 		os.WriteFile(path, []byte(cleanContent), 0o644)
 	}
 
-	findings, elapsed, before, after := runFullPipeline(dir)
+	findings, elapsed, before, after := runFullPipeline(context.Background(), dir)
 	printStats(t, "FULL PIPELINE — CLEAN REPO (50 files, 0 secrets)", 50, len(findings), elapsed, before, after)
 
 	if len(findings) > 0 {
@@ -463,7 +464,7 @@ func TestGoroutineLeakCheck(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		dir := generateTestRepo(t, 1)
-		runFullPipeline(dir)
+		runFullPipeline(context.Background(), dir)
 		os.RemoveAll(dir)
 	}
 
@@ -497,7 +498,7 @@ func TestRealRepo_MediumOSS(t *testing.T) {
 			dir := cloneOrUseCache(t, spec)
 			fileCount := countFiles(dir)
 
-			findings, elapsed, before, after := runFullPipeline(dir)
+			findings, elapsed, before, after := runFullPipeline(context.Background(), dir)
 			printStats(t, fmt.Sprintf("OSS REPO — %s", spec.label), fileCount, len(findings), elapsed, before, after)
 
 			// Log every finding so false positives can be triaged.
@@ -525,65 +526,70 @@ func TestRealRepo_MediumOSS(t *testing.T) {
 func BenchmarkFullPipeline_10Files(b *testing.B) {
 	dir := generateTestRepo(b, 1)
 	defer os.RemoveAll(dir)
+	ctx := context.Background()
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		jobs := make(chan worker.Job, 200)
-		results := worker.StartWorkerPool(jobs)
-		go func() { _ = walker.Walk(dir, jobs) }()
-		_ = aggregator.Aggregate(results)
+		results := worker.StartWorkerPool(ctx, jobs)
+		go func() { _ = walker.Walk(ctx, dir, jobs) }()
+		_ = aggregator.Aggregate(ctx, results)
 	}
 }
 
 func BenchmarkFullPipeline_100Files(b *testing.B) {
 	dir := generateLargeRepo(b, 100, 0.05)
 	defer os.RemoveAll(dir)
+	ctx := context.Background()
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		jobs := make(chan worker.Job, 200)
-		results := worker.StartWorkerPool(jobs)
-		go func() { _ = walker.Walk(dir, jobs) }()
-		_ = aggregator.Aggregate(results)
+		results := worker.StartWorkerPool(ctx, jobs)
+		go func() { _ = walker.Walk(ctx, dir, jobs) }()
+		_ = aggregator.Aggregate(ctx, results)
 	}
 }
 
 func BenchmarkFullPipeline_500Files(b *testing.B) {
 	dir := generateLargeRepo(b, 500, 0.02)
 	defer os.RemoveAll(dir)
+	ctx := context.Background()
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		jobs := make(chan worker.Job, 200)
-		results := worker.StartWorkerPool(jobs)
-		go func() { _ = walker.Walk(dir, jobs) }()
-		_ = aggregator.Aggregate(results)
+		results := worker.StartWorkerPool(ctx, jobs)
+		go func() { _ = walker.Walk(ctx, dir, jobs) }()
+		_ = aggregator.Aggregate(ctx, results)
 	}
 }
 
 func BenchmarkFullPipeline_1000Files(b *testing.B) {
 	dir := generateLargeRepo(b, 1000, 0.02)
 	defer os.RemoveAll(dir)
+	ctx := context.Background()
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		jobs := make(chan worker.Job, 200)
-		results := worker.StartWorkerPool(jobs)
-		go func() { _ = walker.Walk(dir, jobs) }()
-		_ = aggregator.Aggregate(results)
+		results := worker.StartWorkerPool(ctx, jobs)
+		go func() { _ = walker.Walk(ctx, dir, jobs) }()
+		_ = aggregator.Aggregate(ctx, results)
 	}
 }
 
 func BenchmarkFullPipeline_5000Files(b *testing.B) {
 	dir := generateLargeRepo(b, 5000, 0.01)
 	defer os.RemoveAll(dir)
+	ctx := context.Background()
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		jobs := make(chan worker.Job, 200)
-		results := worker.StartWorkerPool(jobs)
-		go func() { _ = walker.Walk(dir, jobs) }()
-		_ = aggregator.Aggregate(results)
+		results := worker.StartWorkerPool(ctx, jobs)
+		go func() { _ = walker.Walk(ctx, dir, jobs) }()
+		_ = aggregator.Aggregate(ctx, results)
 	}
 }
 
@@ -594,13 +600,14 @@ func BenchmarkRealRepo_MediumOSS(b *testing.B) {
 		spec := spec
 		b.Run(strings.ReplaceAll(spec.label, "/", "_"), func(b *testing.B) {
 			dir := cloneOrUseCache(b, spec)
+			ctx := context.Background()
 			b.ResetTimer()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				jobs := make(chan worker.Job, 200)
-				results := worker.StartWorkerPool(jobs)
-				go func() { _ = walker.Walk(dir, jobs) }()
-				_ = aggregator.Aggregate(results)
+				results := worker.StartWorkerPool(ctx, jobs)
+				go func() { _ = walker.Walk(ctx, dir, jobs) }()
+				_ = aggregator.Aggregate(ctx, results)
 			}
 		})
 	}

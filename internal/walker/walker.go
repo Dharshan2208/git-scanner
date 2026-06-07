@@ -1,6 +1,7 @@
 package walker
 
 import (
+	"context"
 	"io/fs"
 	"log"
 	"path/filepath"
@@ -43,31 +44,79 @@ var SkipFiles = map[string]bool{
 	".DS_Store":         true,
 }
 
-// Walk traverses the directory and sends valid file paths to jobs channel
-func Walk(root string, jobs chan<- worker.Job) error {
+// Walk traverses the directory and sends valid file paths to jobs channel.
+// It respects ctx cancellation: when ctx is cancelled it stops the walk
+// and closes the jobs channel.
+func Walk(ctx context.Context, root string, jobs chan<- worker.Job) error {
 	defer close(jobs)
-	return walkDir(root, jobs)
+
+	// Wrap filepath.WalkDir so we can bail on cancellation.
+	var walkErr error
+	done := make(chan struct{}, 1)
+
+	go func() {
+		walkErr = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			// Check cancellation on every directory entry.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+
+			if err != nil {
+				return err
+			}
+
+			if d.IsDir() {
+				if SkipDirs[d.Name()] {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			if SkipFiles[d.Name()] {
+				return nil
+			}
+
+			ext := strings.ToLower(filepath.Ext(path))
+			if ValidExt[ext] {
+				select {
+				case jobs <- worker.Job{
+					FilePath: path,
+					Commit:   "",
+					Message:  "",
+				}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+
+			return nil
+		})
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Cancellation occurred mid-walk. Return the context error;
+		// the goroutine will finish and close jobs naturally.
+		return ctx.Err()
+	case <-done:
+		return walkErr
+	}
 }
 
-// WalkTree traverses a git tree and sends valid file paths to jobs channel
-func WalkTree(tree *object.Tree, basePath string, jobs chan<- worker.Job) error {
-	return walkGitTree(tree, basePath, jobs)
-}
-
-// CollectJobsFromTree collects all jobs from a git tree and returns them
-// This is useful for parallel processing where we need all jobs upfront
-func CollectJobsFromTree(tree *object.Tree, basePath string) ([]worker.Job, error) {
+// CollectJobsFromTree collects all jobs from a git tree and returns them.
+func CollectJobsFromTree(ctx context.Context, tree *object.Tree, basePath string) ([]worker.Job, error) {
 	var jobs []worker.Job
-	err := walkGitTreeWithCollector(tree, basePath, func(job worker.Job) {
+	err := walkGitTreeWithCollector(ctx, tree, basePath, func(job worker.Job) {
 		jobs = append(jobs, job)
 	})
 	return jobs, err
 }
 
-// CollectJobsFromDir collects all jobs from a directory and returns them
-func CollectJobsFromDir(root string) ([]worker.Job, error) {
+// CollectJobsFromDir collects all jobs from a directory and returns them.
+func CollectJobsFromDir(ctx context.Context, root string) ([]worker.Job, error) {
 	var jobs []worker.Job
-	err := walkDirWithCollector(root, func(job worker.Job) {
+	err := walkDirWithCollector(ctx, root, func(job worker.Job) {
 		jobs = append(jobs, job)
 	})
 	return jobs, err
@@ -75,38 +124,11 @@ func CollectJobsFromDir(root string) ([]worker.Job, error) {
 
 // --- Internal implementation ---
 
-func walkDir(root string, jobs chan<- worker.Job) error {
+func walkDirWithCollector(ctx context.Context, root string, collector func(worker.Job)) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-
-		if d.IsDir() {
-			if SkipDirs[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if SkipFiles[d.Name()] {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-		if ValidExt[ext] {
-			jobs <- worker.Job{
-				FilePath: path,
-				Commit:   "",
-				Message:  "",
-			}
-		}
-
-		return nil
-	})
-}
-
-func walkDirWithCollector(root string, collector func(worker.Job)) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -135,19 +157,12 @@ func walkDirWithCollector(root string, collector func(worker.Job)) error {
 	})
 }
 
-func walkGitTree(tree *object.Tree, basePath string, jobs chan<- worker.Job) error {
+func walkGitTreeWithCollector(ctx context.Context, tree *object.Tree, basePath string, collector func(worker.Job)) error {
 	return tree.Files().ForEach(func(f *object.File) error {
-		job, ok := createJobFromGitFile(f, basePath)
-		if !ok {
-			return nil
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		jobs <- job
-		return nil
-	})
-}
 
-func walkGitTreeWithCollector(tree *object.Tree, basePath string, collector func(worker.Job)) error {
-	return tree.Files().ForEach(func(f *object.File) error {
 		job, ok := createJobFromGitFile(f, basePath)
 		if !ok {
 			return nil

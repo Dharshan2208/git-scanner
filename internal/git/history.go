@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"runtime"
@@ -28,55 +29,14 @@ func shortHash(hash string) string {
 	return hash
 }
 
-// ScanHistory passes the commit's tree so walker can scan without checkout.
-// This is the original sequential implementation — kept for reference.
-func ScanHistory(repoPath string, callback func(CommitInfo, *object.Tree)) error {
-	r, err := git.PlainOpen(repoPath)
-	if err != nil {
-		return fmt.Errorf("failed to open repository: %w", err)
-	}
-
-	iter, err := r.Log(&git.LogOptions{All: true})
-	if err != nil {
-		return fmt.Errorf("failed to get commit log: %w", err)
-	}
-
-	var commits []*object.Commit
-	if err := iter.ForEach(func(c *object.Commit) error {
-		commits = append(commits, c)
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	for i := len(commits) - 1; i >= 0; i-- {
-		c := commits[i]
-		tree, err := c.Tree()
-		if err != nil {
-			log.Printf("Warning: failed to get tree for commit %s: %v", shortHash(c.Hash.String()), err)
-			continue
-		}
-
-		fmt.Printf("Scanning commit %s | %s\n", shortHash(c.Hash.String()), truncate(c.Message, 70))
-
-		callback(CommitInfo{
-			Hash:       c.Hash.String(),
-			Message:    c.Message,
-			OrderIndex: len(commits) - 1 - i,
-		}, tree)
-	}
-
-	return nil
-}
-
 // CommitScanner is implemented by types that know how to scan a single commit's tree.
 type CommitScanner interface {
-	ScanCommit(info CommitInfo, tree *object.Tree) []types.Finding
+	ScanCommit(ctx context.Context, info CommitInfo, tree *object.Tree) []types.Finding
 }
 
 // ScanHistoryParallel scans every commit in the repository in parallel using the
 // provided CommitScanner and returns all findings across all commits.
-func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]types.Finding, error) {
+func ScanHistoryParallel(ctx context.Context, repoPath string, scanner CommitScanner) ([]types.Finding, error) {
 	r, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open repository: %w", err)
@@ -90,9 +50,17 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]types.Findin
 	// Collect all commits (newest first from go-git)
 	var commits []*object.Commit
 	if err := iter.ForEach(func(c *object.Commit) error {
+		// Check for cancellation during iteration.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		commits = append(commits, c)
 		return nil
 	}); err != nil {
+		// If the error is from cancellation, return partial results.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, err
 	}
 
@@ -107,6 +75,10 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]types.Findin
 
 	tasks := make([]scanTask, 0, numCommits)
 	for i := len(commits) - 1; i >= 0; i-- {
+		if err := ctx.Err(); err != nil {
+			return nil, ctx.Err()
+		}
+
 		c := commits[i]
 		tree, err := c.Tree()
 		if err != nil {
@@ -142,35 +114,56 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]types.Findin
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			for task := range taskChan {
-				fmt.Printf("[Worker %d] Scanning commit %s | %s\n",
-					workerID+1, shortHash(task.info.Hash), truncate(task.info.Message, 50))
+			for {
+				select {
+				case <-ctx.Done():
+					// Drain remaining tasks so the feeder goroutine doesn't block.
+					for range taskChan {
+					}
+					return
+				case task, ok := <-taskChan:
+					if !ok {
+						return
+					}
 
-				findings := scanner.ScanCommit(task.info, task.tree)
+					fmt.Printf("[Worker %d] Scanning commit %s | %s\n",
+						workerID+1, shortHash(task.info.Hash), truncate(task.info.Message, 50))
 
-				// Stamp commit info on each finding
-				for i := range findings {
-					findings[i].Commit = task.info.Hash
-					findings[i].Message = task.info.Message
-				}
+					findings := scanner.ScanCommit(ctx, task.info, task.tree)
 
-				resultsChan <- result{
-					info:     task.info,
-					findings: findings,
+					// Stamp commit info on each finding
+					for i := range findings {
+						findings[i].Commit = task.info.Hash
+						findings[i].Message = task.info.Message
+					}
+
+					select {
+					case resultsChan <- result{
+						info:     task.info,
+						findings: findings,
+					}:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}(w)
 	}
 
-	// Feed tasks to workers
+	// Feed tasks to workers (non-blocking, respects cancellation)
 	go func() {
 		for _, task := range tasks {
-			taskChan <- task
+			select {
+			case taskChan <- task:
+			case <-ctx.Done():
+				close(taskChan)
+				return
+			}
 		}
 		close(taskChan)
 	}()
 
-	// Close results when done
+	// Close results when all workers are done
 	go func() {
 		wg.Wait()
 		close(resultsChan)
@@ -178,17 +171,22 @@ func ScanHistoryParallel(repoPath string, scanner CommitScanner) ([]types.Findin
 
 	// Collect all results
 	var allFindings []types.Finding
-	for res := range resultsChan {
-		allFindings = append(allFindings, res.findings...)
+	for {
+		select {
+		case <-ctx.Done():
+			return allFindings, ctx.Err()
+		case res, ok := <-resultsChan:
+			if !ok {
+				log.Printf("Parallel scan complete: %d total findings from %d commits\n", len(allFindings), len(tasks))
+				return allFindings, nil
+			}
+			allFindings = append(allFindings, res.findings...)
+		}
 	}
-
-	log.Printf("Parallel scan complete: %d total findings from %d commits\n", len(allFindings), len(tasks))
-
-	return allFindings, nil
 }
 
 // GetCommitOrder returns a map of commit hash to order index (oldest = 0).
-func GetCommitOrder(repoPath string) (map[string]int, error) {
+func GetCommitOrder(ctx context.Context, repoPath string) (map[string]int, error) {
 	r, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open repository: %w", err)
@@ -201,9 +199,15 @@ func GetCommitOrder(repoPath string) (map[string]int, error) {
 
 	var commits []*object.Commit
 	if err := iter.ForEach(func(c *object.Commit) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		commits = append(commits, c)
 		return nil
 	}); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, err
 	}
 
@@ -211,6 +215,9 @@ func GetCommitOrder(repoPath string) (map[string]int, error) {
 	numCommits := len(commits)
 
 	for i := len(commits) - 1; i >= 0; i-- {
+		if err := ctx.Err(); err != nil {
+			return nil, ctx.Err()
+		}
 		orderMap[commits[i].Hash.String()] = numCommits - 1 - i
 	}
 
@@ -218,7 +225,7 @@ func GetCommitOrder(repoPath string) (map[string]int, error) {
 }
 
 // GetCommitInfo returns detailed info for a specific commit hash.
-func GetCommitInfo(repoPath, commitHash string) (*CommitInfo, error) {
+func GetCommitInfo(ctx context.Context, repoPath, commitHash string) (*CommitInfo, error) {
 	r, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open repository: %w", err)
@@ -230,7 +237,7 @@ func GetCommitInfo(repoPath, commitHash string) (*CommitInfo, error) {
 		return nil, fmt.Errorf("failed to get commit %s: %w", shortHash(commitHash), err)
 	}
 
-	orderMap, err := GetCommitOrder(repoPath)
+	orderMap, err := GetCommitOrder(ctx, repoPath)
 	if err != nil {
 		return nil, err
 	}

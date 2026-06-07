@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,8 +11,8 @@ import (
 )
 
 // Resolve will take the input (local/repo url)
-// and returns a local directory path
-func Resolve(input string) (string, func() error, error) {
+// and returns a local directory path.
+func Resolve(ctx context.Context, input string) (string, func() error, error) {
 	// Case 1: Remote repo (HTTP/HTTPS or SSH)
 	isRemote := strings.HasPrefix(input, "http://") ||
 		strings.HasPrefix(input, "https://") ||
@@ -19,6 +20,10 @@ func Resolve(input string) (string, func() error, error) {
 		strings.HasPrefix(input, "ssh://")
 
 	if isRemote {
+		// Check context before doing any work
+		if err := ctx.Err(); err != nil {
+			return "", nil, fmt.Errorf("resolve cancelled: %w", err)
+		}
 
 		// Get the current working directory
 		projectDir, err := os.Getwd()
@@ -40,14 +45,30 @@ func Resolve(input string) (string, func() error, error) {
 
 		fmt.Println("Cloning repo into:", tempDir)
 
-		// Clone repo
-		_, err = git.PlainClone(tempDir, false, &git.CloneOptions{
-			URL:      input,
-			Progress: os.Stdout,
-		})
-		if err != nil {
-			os.RemoveAll(tempDir) // cleanup on clone failure
-			return "", nil, err
+		// We run the clone in a goroutine so we can check ctx cancellation.
+		type cloneResult struct {
+			err error
+		}
+		resultCh := make(chan cloneResult, 1)
+
+		go func() {
+			_, err := git.PlainClone(tempDir, false, &git.CloneOptions{
+				URL:      input,
+				Progress: os.Stdout,
+			})
+			resultCh <- cloneResult{err: err}
+		}()
+
+		select {
+		case <-ctx.Done():
+			// Context cancelled — best-effort cleanup, return the context error.
+			os.RemoveAll(tempDir)
+			return "", nil, ctx.Err()
+		case res := <-resultCh:
+			if res.err != nil {
+				os.RemoveAll(tempDir) // cleanup on clone failure
+				return "", nil, fmt.Errorf("clone failed: %w", res.err)
+			}
 		}
 
 		// Cleanup function

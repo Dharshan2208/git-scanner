@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sort"
@@ -20,8 +21,8 @@ type CommitTreeScanner struct {
 }
 
 // ScanCommit scans every file in the given commit tree and returns findings.
-func (s *CommitTreeScanner) ScanCommit(info git.CommitInfo, tree *object.Tree) []types.Finding {
-	jobs, err := walker.CollectJobsFromTree(tree, s.BasePath)
+func (s *CommitTreeScanner) ScanCommit(ctx context.Context, info git.CommitInfo, tree *object.Tree) []types.Finding {
+	jobs, err := walker.CollectJobsFromTree(ctx, tree, s.BasePath)
 	if err != nil {
 		log.Printf("Warning: failed to collect jobs for commit %s: %v",
 			utils.ShortHash(info.Hash, 8), err)
@@ -30,7 +31,7 @@ func (s *CommitTreeScanner) ScanCommit(info git.CommitInfo, tree *object.Tree) [
 
 	var findings []types.Finding
 	for _, job := range jobs {
-		results := scanner.ScanContent(job.Content, job.FilePath, info.Hash, info.Message)
+		results := scanner.ScanContent(ctx, job.Content, job.FilePath, info.Hash, info.Message)
 		findings = append(findings, results...)
 	}
 	return findings
@@ -39,20 +40,20 @@ func (s *CommitTreeScanner) ScanCommit(info git.CommitInfo, tree *object.Tree) [
 // RunParallelHistoryScan performs a full parallel git history scan on the
 // repository at repoPath, then enriches findings with lifecycle tracking.
 // Returns the enriched findings or an error.
-func RunParallelHistoryScan(repoPath string) ([]types.Finding, error) {
+func RunParallelHistoryScan(ctx context.Context, repoPath string) ([]types.Finding, error) {
 	fmt.Println("Starting PARALLEL git history scan...")
 	fmt.Println("(Scanning multiple commits concurrently for faster results)")
 	fmt.Println()
 
 	treeScanner := &CommitTreeScanner{BasePath: repoPath}
 
-	findings, err := git.ScanHistoryParallel(repoPath, treeScanner)
+	findings, err := git.ScanHistoryParallel(ctx, repoPath, treeScanner)
 	if err != nil {
 		return nil, fmt.Errorf("parallel history scan failed: %w", err)
 	}
 
 	fmt.Println("\nBuilding lifecycle tracking...")
-	return BuildLifecycle(findings, repoPath), nil
+	return BuildLifecycle(ctx, findings, repoPath), nil
 }
 
 // BuildLifecycle processes findings in commit order (oldest → newest) to
@@ -60,7 +61,7 @@ func RunParallelHistoryScan(repoPath string) ([]types.Finding, error) {
 // many commits it was exposed in, and whether it still exists in HEAD.
 //
 // It returns a new slice of findings enriched with lifecycle metadata.
-func BuildLifecycle(findings []types.Finding, repoPath string) []types.Finding {
+func BuildLifecycle(ctx context.Context, findings []types.Finding, repoPath string) []types.Finding {
 	type lifecycle struct {
 		IntroducedCommit string
 		RemovedCommit    string
@@ -99,7 +100,7 @@ func BuildLifecycle(findings []types.Finding, repoPath string) []types.Finding {
 	}
 
 	// Get commit order (oldest → newest)
-	commitOrder, err := git.GetCommitOrder(repoPath)
+	commitOrder, err := git.GetCommitOrder(ctx, repoPath)
 	if err != nil {
 		log.Printf("Warning: could not get commit order, using hash order: %v", err)
 	}
@@ -122,6 +123,11 @@ func BuildLifecycle(findings []types.Finding, repoPath string) []types.Finding {
 	activeKeys := make(map[string]struct{})
 
 	for _, co := range orderedCommits {
+		// Check for cancellation during lifecycle processing.
+		if err := ctx.Err(); err != nil {
+			break
+		}
+
 		commitFindings := commitsByHash[co.hash]
 
 		presentKeys := make(map[string]struct{})

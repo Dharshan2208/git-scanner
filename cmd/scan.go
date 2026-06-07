@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -22,67 +23,75 @@ var (
 	history    bool
 )
 
+// runScan contains the core scan logic and accepts a context for cancellation.
+func runScan(ctx context.Context) error {
+	if repoURL != "" && localPath != "" {
+		return fmt.Errorf("cannot specify both --repo and --local")
+	}
+
+	var input string
+	switch {
+	case repoURL != "":
+		input = repoURL
+	case localPath != "":
+		input = localPath
+	default:
+		return fmt.Errorf("provide --local <path> or --repo <url>")
+	}
+
+	path, cleanup, err := repo.Resolve(ctx, input)
+	if err != nil {
+		return fmt.Errorf("resolve failed: %w", err)
+	}
+	defer cleanup()
+
+	fmt.Println("Resolved Path : ", path)
+
+	if history {
+		findings, err := lifecycle.RunParallelHistoryScan(ctx, path)
+		if err != nil {
+			return fmt.Errorf("history scan failed: %w", err)
+		}
+		fmt.Println("\nHistory scan completed.")
+		output.PrintFindings(findings, path)
+		output.SaveReport(findings, path, outputFile, format)
+		return nil
+	}
+
+	jobs := make(chan worker.Job, 200)
+	results := worker.StartWorkerPool(ctx, jobs)
+
+	// Walk the filesystem in a goroutine, communicate errors via channel.
+	walkErr := make(chan error, 1)
+	go func() {
+		walkErr <- walker.Walk(ctx, path, jobs)
+	}()
+
+	// Aggregate blocks until the results channel is closed (all workers done)
+	// or the context is cancelled.
+	aggregatedFindings := aggregator.Aggregate(ctx, results)
+
+	// Wait for the walker to finish and check for errors.
+	// The walker always sends to this buffered channel before its goroutine exits,
+	// so this read will not block indefinitely.
+	if err := <-walkErr; err != nil {
+		log.Printf("Warning: walker encountered errors (partial results may be returned): %v", err)
+	}
+
+	output.PrintFindings(aggregatedFindings, path)
+	output.SaveReport(aggregatedFindings, path, outputFile, format)
+	return nil
+}
+
 var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Scan a repository for secrets and APIs",
-	Run: func(cmd *cobra.Command, args []string) {
-		if repoURL != "" && localPath != "" {
-			log.Fatal("Cannot specify both --repo and --local")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
 		}
-
-		var input string
-		switch {
-		case repoURL != "":
-			input = repoURL
-		case localPath != "":
-			input = localPath
-		default:
-			log.Fatal("Provide --local <path> or --repo <url>")
-		}
-
-		// --- Resolve path (clone if remote) ---
-		path, cleanup, err := repo.Resolve(input)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer cleanup()
-
-		fmt.Println("Resolved Path : ", path)
-
-		// --- History mode ---
-		if history {
-			findings, err := lifecycle.RunParallelHistoryScan(path)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println("\nHistory scan completed.")
-			output.PrintFindings(findings, path)
-			output.SaveReport(findings, path, outputFile, format)
-			return
-		}
-
-		// --- Working tree mode ---
-		jobs := make(chan worker.Job, 200)
-		results := worker.StartWorkerPool(jobs)
-
-		// Walk the filesystem in a goroutine, communicate errors via channel.
-		// Using an error channel instead of log.Fatal inside the goroutine
-		// ensures deferred cleanup() in the parent goroutine still runs.
-		walkErr := make(chan error, 1)
-		go func() {
-			walkErr <- walker.Walk(path, jobs)
-		}()
-
-		// Aggregate blocks until the results channel is closed (all workers done).
-		aggregatedFindings := aggregator.Aggregate(results)
-
-		// Check whether the walker encountered an error.
-		if err := <-walkErr; err != nil {
-			log.Printf("Warning: walker encountered errors (partial results may be returned): %v", err)
-		}
-
-		output.PrintFindings(aggregatedFindings, path)
-		output.SaveReport(aggregatedFindings, path, outputFile, format)
+		return runScan(ctx)
 	},
 }
 
