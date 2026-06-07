@@ -113,50 +113,7 @@ func CollectJobsFromTree(ctx context.Context, tree *object.Tree, basePath string
 	return jobs, err
 }
 
-// CollectJobsFromDir collects all jobs from a directory and returns them.
-func CollectJobsFromDir(ctx context.Context, root string) ([]worker.Job, error) {
-	var jobs []worker.Job
-	err := walkDirWithCollector(ctx, root, func(job worker.Job) {
-		jobs = append(jobs, job)
-	})
-	return jobs, err
-}
-
 // --- Internal implementation ---
-
-func walkDirWithCollector(ctx context.Context, root string, collector func(worker.Job)) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			if SkipDirs[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if SkipFiles[d.Name()] {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-		if ValidExt[ext] {
-			collector(worker.Job{
-				FilePath: path,
-				Commit:   "",
-				Message:  "",
-			})
-		}
-
-		return nil
-	})
-}
-
 func walkGitTreeWithCollector(ctx context.Context, tree *object.Tree, basePath string, collector func(worker.Job)) error {
 	return tree.Files().ForEach(func(f *object.File) error {
 		if err := ctx.Err(); err != nil {
